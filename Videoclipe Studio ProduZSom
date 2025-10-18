@@ -1,0 +1,128 @@
+{
+  "workflow_name": "Videoclipe Studio — Music → Storyboard Generator",
+  "description": "Fluxo completo para gerar sinopse, storyboard e takes de videoclipe a partir da letra e/ou áudio de referência.",
+  "version": "1.0.0",
+  "nodes": [
+    {
+      "id": "lyrics_input",
+      "type": "TextInput",
+      "label": "Letra da Música",
+      "outputs": ["lyrics_text"],
+      "params": {
+        "placeholder": "Cole aqui a letra completa da música..."
+      }
+    },
+    {
+      "id": "audio_upload",
+      "type": "FileUpload",
+      "label": "Áudio de Referência",
+      "outputs": ["audio_file"],
+      "params": {
+        "file_types": ["audio/mp3", "audio/wav"],
+        "optional": true
+      }
+    },
+    {
+      "id": "audio_metadata",
+      "type": "AudioMetadataExtractor",
+      "label": "Extrair Duração/BPM",
+      "inputs": ["audio_file"],
+      "outputs": ["duration_seconds", "bpm"],
+      "params": {
+        "library": "music-metadata",
+        "output_format": "JSON"
+      }
+    },
+    {
+      "id": "preprocessor",
+      "type": "LyricsPreprocessor",
+      "label": "Pré-processar Letra",
+      "inputs": ["lyrics_text"],
+      "outputs": ["clean_lyrics", "structure_hint"],
+      "params": {
+        "split_by": "verso",
+        "detect_refrain": true
+      }
+    },
+    {
+      "id": "llm_prompt",
+      "type": "LLMGenerate",
+      "label": "Gerar Estrutura via OpenAI",
+      "inputs": ["clean_lyrics", "structure_hint", "duration_seconds", "bpm"],
+      "outputs": ["ai_json_text"],
+      "params": {
+        "api_endpoint": "https://api.openai.com/v1/chat/completions",
+        "model": "gpt-4o-mini",
+        "api_key": "${OPENAI_API_KEY}",
+        "prompt_template": "Gere um JSON contendo sinopse, scenes[] e takes[] a partir da letra e informações temporais.",
+        "response_format": "json"
+      }
+    },
+    {
+      "id": "json_parse",
+      "type": "JSONParser",
+      "label": "Parsear Resposta JSON",
+      "inputs": ["ai_json_text"],
+      "outputs": ["parsed_project"],
+      "params": {
+        "validate_schema": true
+      }
+    },
+    {
+      "id": "scene_timing",
+      "type": "SceneTimingAdjuster",
+      "label": "Ajustar Tempo de Cenas",
+      "inputs": ["parsed_project", "duration_seconds"],
+      "outputs": ["timed_project"],
+      "params": {
+        "mode": "stretch",
+        "scene_overlap": 0.5
+      }
+    },
+    {
+      "id": "db_save",
+      "type": "SupabaseUploader",
+      "label": "Salvar no Banco de Dados",
+      "inputs": ["timed_project"],
+      "outputs": ["project_url"],
+      "params": {
+        "supabase_url": "https://your-supabase-instance.supabase.co",
+        "supabase_key": "${SUPABASE_SERVICE_KEY}",
+        "table": "videoclipe_projects"
+      }
+    },
+    {
+      "id": "export",
+      "type": "Exporter",
+      "label": "Exportar Storyboard / PDF",
+      "inputs": ["timed_project"],
+      "outputs": ["pdf_file", "json_file"],
+      "params": {
+        "formats": ["PDF", "JSON"],
+        "file_prefix": "videoclipe_studio_"
+      }
+    }
+  ],
+  "links": [
+    ["lyrics_input:lyrics_text", "preprocessor:lyrics_text"],
+    ["audio_upload:audio_file", "audio_metadata:audio_file"],
+    ["audio_metadata:duration_seconds", "llm_prompt:duration_seconds"],
+    ["audio_metadata:bpm", "llm_prompt:bpm"],
+    ["preprocessor:clean_lyrics", "llm_prompt:clean_lyrics"],
+    ["llm_prompt:ai_json_text", "json_parse:ai_json_text"],
+    ["json_parse:parsed_project", "scene_timing:parsed_project"],
+    ["scene_timing:timed_project", "db_save:timed_project"],
+    ["scene_timing:timed_project", "export:timed_project"]
+  ],
+  "ui_layout": {
+    "lyrics_input": [100, 100],
+    "audio_upload": [100, 260],
+    "audio_metadata": [320, 260],
+    "preprocessor": [320, 100],
+    "llm_prompt": [580, 160],
+    "json_parse": [850, 160],
+    "scene_timing": [1120, 160],
+    "db_save": [1380, 100],
+    "export": [1380, 220]
+  }
+}
